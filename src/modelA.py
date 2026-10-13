@@ -17,7 +17,9 @@ def build_model_a():
     # Four conv blocks: Conv -> BatchNorm -> ReLU -> MaxPool
     for filters in [32, 64, 128, 128]:
         m.add(layers.Conv2D(filters, 3, padding="same", use_bias=True))
-        m.add(layers.BatchNormalization())
+        # momentum=0.9 (default 0.99) lets the running mean/variance used at
+        # validation time keep up with the weights, which reduces val-loss spikes
+        m.add(layers.BatchNormalization(momentum=0.9))
         m.add(layers.ReLU())
         m.add(layers.MaxPooling2D(2))
  

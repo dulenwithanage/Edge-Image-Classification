@@ -179,3 +179,8 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+# Dataset images (too large for GitHub)
+data/
+
+# Trained model checkpoints (store separately or use Git LFS)
+models/

@@ -1,5 +1,5 @@
 import os
-os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "1"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
 import sys
@@ -16,16 +16,18 @@ from modelA import build_model_a
 from modelB import build_model_b
 
 EPOCHS = 20
+LR = 1e-3   # Adam
+SGD_LR = 1e-2
 SEED = 42
 
 
 def get_optimizer(name):
     if name == "adam":
-        return tf.keras.optimizers.Adam(learning_rate=1e-3)
+        return tf.keras.optimizers.Adam(learning_rate=LR)
     if name == "sgd":
-        return tf.keras.optimizers.SGD(learning_rate=1e-2)
+        return tf.keras.optimizers.SGD(learning_rate=SGD_LR)
     if name == "sgd_momentum":
-        return tf.keras.optimizers.SGD(learning_rate=1e-2, momentum=0.9)
+        return tf.keras.optimizers.SGD(learning_rate=SGD_LR, momentum=0.9)
     raise ValueError(f"Unknown optimizer: {name}")
 
 
@@ -66,9 +68,10 @@ def plot_history(history, tag):
 
 
 def main():
-    # Usage: python src/train.py <A|B> <adam|sgd|sgd_momentum>
+    # Usage: python src/train.py <A|B> <adam|sgd|sgd_momentum> [epochs]
     model_name = sys.argv[1].upper() if len(sys.argv) > 1 else "A"
     opt_name = sys.argv[2].lower() if len(sys.argv) > 2 else "adam"
+    epochs = int(sys.argv[3]) if len(sys.argv) > 3 else EPOCHS
     tag = f"{model_name}_{opt_name}"
 
     tf.keras.utils.set_random_seed(SEED)
@@ -88,12 +91,16 @@ def main():
         monitor="val_loss",
         save_best_only=True,
     )
+    # Halve the learning rate when validation loss stops improving for 2 epochs.
+    # Smaller late-stage steps stop the validation loss from jumping around.
+    reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
+        monitor="val_loss", factor=0.5, patience=2, min_lr=1e-5, verbose=1)
 
     history = model.fit(
         train,
         validation_data=val,
-        epochs=EPOCHS,
-        callbacks=[timer, ckpt],
+        epochs=epochs,
+        callbacks=[timer, ckpt, reduce_lr],
         verbose=2,
     )
 
@@ -108,7 +115,7 @@ def main():
 
     path = plot_history(history, tag)
     print(f"\nSaved curves to {path}")
-    print(f"Mean epoch time (epochs 2-{EPOCHS}): {sum(timer.times[1:]) / (len(timer.times) - 1):.1f} s")
+    print(f"Mean epoch time (epochs 2-{epochs}): {sum(timer.times[1:]) / (len(timer.times) - 1):.1f} s")
 
 
 if __name__ == "__main__":

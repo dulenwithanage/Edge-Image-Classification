@@ -18,7 +18,7 @@ def build_model_b():
     # (3x3 depthwise per channel, then 1x1 pointwise to mix channels)
     for filters in [32, 64, 128, 128]:
         m.add(layers.SeparableConv2D(filters, 3, padding="same", use_bias=False))
-        m.add(layers.BatchNormalization())
+        m.add(layers.BatchNormalization(momentum=0.9))
         m.add(layers.ReLU())
         m.add(layers.MaxPooling2D(2))
 

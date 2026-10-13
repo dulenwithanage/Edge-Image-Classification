@@ -1,5 +1,5 @@
 import os
-os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "1"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
 import csv
@@ -15,7 +15,9 @@ def read_split(csv_path=os.path.join("results", "split.csv")):
     data = {"train": ([], []), "val": ([], []), "test": ([], [])}
     with open(csv_path) as fh:
         for row in csv.DictReader(fh):
-            data[row["subset"]][0].append(row["path"])
+            # split.csv was written on Windows; make the path work on any OS
+            path = row["path"].replace("\\", "/").replace("/", os.sep)
+            data[row["subset"]][0].append(path)
             data[row["subset"]][1].append(int(row["label"]))
     return data
 
