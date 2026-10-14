@@ -1,9 +1,11 @@
 import os
-os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "1"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
 import tensorflow as tf
 from tensorflow.keras import layers, models
+
+from data import augmentation
 
 IMG_SIZE = (64, 64)
 NUM_CLASSES = 6
@@ -13,6 +15,7 @@ def build_model_b():
     """Model B: depthwise separable convolutions (lightweight, < 100k params)."""
     m = models.Sequential(name="model_b_lightweight")
     m.add(layers.Input(shape=(*IMG_SIZE, 3)))
+    m.add(augmentation())  # active during training only
 
     # All four blocks use depthwise separable convolutions
     # (3x3 depthwise per channel, then 1x1 pointwise to mix channels)
@@ -23,6 +26,9 @@ def build_model_b():
         m.add(layers.MaxPooling2D(2))
 
     m.add(layers.GlobalAveragePooling2D())
+    # Dropout randomly zeroes 20% of the pooled features each training step,
+    # so the classifier cannot rely on any single feature (off at test time)
+    m.add(layers.Dropout(0.2))
     m.add(layers.Dense(64))
     m.add(layers.ReLU())
     m.add(layers.Dense(NUM_CLASSES, activation="softmax"))

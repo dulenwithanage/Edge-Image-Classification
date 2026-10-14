@@ -12,13 +12,22 @@ import matplotlib
 matplotlib.use("Agg")  # save figures to files; no pop-up window
 import matplotlib.pyplot as plt
 
-from data import get_datasets, IMG_SIZE, NUM_CLASSES
+from data import get_datasets, augmentation, IMG_SIZE, NUM_CLASSES
 from train import EpochTimer
 
 CLASSES = ["buildings", "forest", "glacier", "mountain", "sea", "street"]
 SEED = 42
 HEAD_EPOCHS = 5    # phase 1: backbone frozen, train only the new classifier head
 FINE_EPOCHS = 15   # phase 2: unfreeze everything, small learning rate
+
+# Learning rates (Adam) and epochs per pretrained model. Edit any value here.
+#   head: phase 1, only the new classifier head trains (backbone frozen)
+#   fine: phase 2, whole network unfrozen -- keep it small so the pretrained
+#         features are adjusted, not overwritten
+RUN_CONFIG = {
+    "mobilenetv2":    {"head_lr": 1e-3, "fine_lr": 1e-4, "head_epochs": HEAD_EPOCHS, "fine_epochs": FINE_EPOCHS},
+    "efficientnetb0": {"head_lr": 1e-3, "fine_lr": 1e-4, "head_epochs": HEAD_EPOCHS, "fine_epochs": FINE_EPOCHS},
+}
 
 
 def build(name):
@@ -31,15 +40,16 @@ def build(name):
     """
     shape = (*IMG_SIZE, 3)
     inp = layers.Input(shape=shape)
+    aug = augmentation()(inp)  # same training-only augmentation as Models A and B
 
     if name == "mobilenetv2":
         base = tf.keras.applications.MobileNetV2(
             include_top=False, weights="imagenet", input_shape=shape)
-        x = layers.Rescaling(2.0, offset=-1.0)(inp)
+        x = layers.Rescaling(2.0, offset=-1.0)(aug)
     elif name == "efficientnetb0":
         base = tf.keras.applications.EfficientNetB0(
             include_top=False, weights="imagenet", input_shape=shape)
-        x = layers.Rescaling(255.0)(inp)
+        x = layers.Rescaling(255.0)(aug)
     else:
         raise ValueError("name must be 'mobilenetv2' or 'efficientnetb0'")
 
@@ -64,13 +74,13 @@ def make_ckpt(path):
         path, monitor="val_loss", save_best_only=True, save_weights_only=True)
 
 
-def plot_curves(hist, tag):
+def plot_curves(hist, tag, head_epochs):
     epochs = range(1, len(hist["loss"]) + 1)
     fig, ax = plt.subplots(1, 2, figsize=(10, 4))
     for a, (key, ylabel) in zip(ax, [("loss", "Cross-entropy loss"), ("accuracy", "Accuracy")]):
         a.plot(epochs, hist[key], "b-o", markersize=3, label=f"Training {key}")
         a.plot(epochs, hist["val_" + key], "r-o", markersize=3, label=f"Validation {key}")
-        a.axvline(HEAD_EPOCHS + 0.5, color="gray", linestyle="--", label="Backbone unfrozen")
+        a.axvline(head_epochs + 0.5, color="gray", linestyle="--", label="Backbone unfrozen")
         a.set(title=f"{tag}: {key}", xlabel="Epoch", ylabel=ylabel)
         a.legend()
     plt.tight_layout()
@@ -106,22 +116,25 @@ def main():
     ckpt_path = os.path.join("models", f"{tag}.weights.h5")
 
     # Phase 1: train only the new head
-    compile_model(model, 1e-3)
+    cfg = RUN_CONFIG[name]
+    print(f"{name}: phase 1 lr {cfg['head_lr']:g} x {cfg['head_epochs']} epochs, "
+          f"phase 2 lr {cfg['fine_lr']:g} x {cfg['fine_epochs']} epochs")
+    compile_model(model, cfg["head_lr"])
     t1 = EpochTimer()
-    h1 = model.fit(train, validation_data=val, epochs=HEAD_EPOCHS,
+    h1 = model.fit(train, validation_data=val, epochs=cfg["head_epochs"],
                    callbacks=[t1, make_ckpt(ckpt_path)], verbose=2)
 
     # Phase 2: unfreeze the whole network and fine-tune with a small learning rate
     base.trainable = True
-    compile_model(model, 1e-4)   # must recompile after changing trainable
+    compile_model(model, cfg["fine_lr"])   # must recompile after changing trainable
     t2 = EpochTimer()
-    h2 = model.fit(train, validation_data=val, epochs=FINE_EPOCHS,
+    h2 = model.fit(train, validation_data=val, epochs=cfg["fine_epochs"],
                    callbacks=[t2, make_ckpt(ckpt_path)], verbose=2)
 
     model.load_weights(ckpt_path)   # best validation-loss weights
 
     hist = {k: h1.history[k] + h2.history[k] for k in h1.history}
-    plot_curves(hist, tag)
+    plot_curves(hist, tag, cfg["head_epochs"])
 
     # ---- Test-set evaluation ----
     y_true = np.concatenate([y.numpy() for _, y in test])
@@ -142,6 +155,7 @@ def main():
 
     metrics = {
         "model": name,
+        "run_config": cfg,
         "test_accuracy": acc,
         "precision_per_class": dict(zip(CLASSES, map(float, precision))),
         "recall_per_class": dict(zip(CLASSES, map(float, recall))),

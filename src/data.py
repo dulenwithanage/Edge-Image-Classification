@@ -38,6 +38,21 @@ def make_ds(paths, labels, training):
     return ds.batch(BATCH_SIZE).prefetch(AUTOTUNE)
 
 
+def augmentation():
+    """Random flips, rotations and zooms, applied only while training.
+
+    Keras turns these layers into no-ops at validation/test/inference time, so the
+    model sees a slightly different version of every training image each epoch
+    (less memorisation) while evaluation stays deterministic. They have no weights,
+    so they do not change the parameter count.
+    """
+    return tf.keras.Sequential([
+        tf.keras.layers.RandomFlip("horizontal", seed=42),   # scenes are left-right symmetric
+        tf.keras.layers.RandomRotation(0.05, seed=42),       # up to +/-18 degrees
+        tf.keras.layers.RandomZoom(0.1, seed=42),            # up to +/-10 %
+    ], name="augmentation")
+
+
 def get_datasets():
     d = read_split()
     train = make_ds(*d["train"], training=True)
